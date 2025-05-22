@@ -2,31 +2,24 @@ import streamlit as st
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
+from langchain.callbacks.base import BaseCallbackHandler
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# placeholder = st.empty()
+
+class StreamlitCallbackHandler(BaseCallbackHandler):
+    def __init__(self, placeholder):
+        super().__init__()  # 부모 초기화 꼭 해주기!
+        self.text = ""
+        self.placeholder = placeholder
+
+    def on_llm_new_token(self, token: str, **kwargs):
+        self.text += token
+        self.placeholder.markdown(self.text)
 
 
-# class StreamlitCallbackHandler:
-
-#     def __init__(self, placeholder):
-#         self.text = ""
-#         self.placeholder = placeholder
-
-#     def on_llm_new_token(self, token: str):
-#         self.text += token
-#         self.placeholder.markdown(self.text)
-
-
-llm = ChatOpenAI(
-    model="gpt-4.1-mini",
-    temperature=0.5,
-    # streaming=True,
-    # callbacks=[StreamlitCallbackHandler(placeholder)],
-)
-
+# --- 프롬프트 및 체인 정의 ---
 
 mid_prompt = ChatPromptTemplate.from_messages(
     [
@@ -76,9 +69,6 @@ final_prompt = ChatPromptTemplate.from_messages(
     ],
 )
 
-mid_chain = mid_prompt | llm | StrOutputParser()
-final_chain = final_prompt | llm | StrOutputParser()
-
 st.set_page_config(
     page_title="글쓰기 도우미",
     layout="wide",
@@ -102,15 +92,8 @@ with col1:
 
     with container2:
         st.markdown("#### 중간 피드백")
-        feedback = st.empty()
-        if mid_feedback_btn:
-            result = mid_chain.invoke(
-                {
-                    "name": name,
-                    "essay": content,
-                }
-            )
-            feedback.markdown(result)
+        # 중간 피드백 스트리밍 표시 영역
+        feedback_placeholder = st.empty()
 
 with col2:
     final_feedback_btn = st.button(
@@ -124,12 +107,41 @@ with col2:
     )
     with final_container:
         st.markdown("#### 최종 점수 및 피드백")
-        final_feedback = st.empty()
-        if final_feedback_btn:
-            result = final_chain.invoke(
-                {
-                    "name": name,
-                    "essay": content,
-                }
-            )
-            final_feedback.markdown(result)
+        # 최종 피드백 스트리밍 표시 영역
+        final_feedback_placeholder = st.empty()
+
+
+if "mid_llm" not in st.session_state:
+    st.session_state.mid_llm = ChatOpenAI(
+        model="gpt-4.1-mini",
+        temperature=0.5,
+        streaming=True,
+        callbacks=[StreamlitCallbackHandler(feedback_placeholder)],
+    )
+
+if "final_llm" not in st.session_state:
+    st.session_state.final_llm = ChatOpenAI(
+        model="gpt-4.1-mini",
+        temperature=0.5,
+        streaming=True,
+        callbacks=[StreamlitCallbackHandler(final_feedback_placeholder)],
+    )
+
+mid_chain = mid_prompt | st.session_state.mid_llm | StrOutputParser()
+final_chain = final_prompt | st.session_state.final_llm | StrOutputParser()
+
+if mid_feedback_btn:
+    mid_chain.invoke(
+        {
+            "name": name,
+            "essay": content,
+        }
+    )
+
+if final_feedback_btn:
+    final_chain.invoke(
+        {
+            "name": name,
+            "essay": content,
+        }
+    )
